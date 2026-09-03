@@ -189,9 +189,12 @@ func (s *Service) Confirm(ctx context.Context, id uuid.UUID, chainTx string) (*P
 		RETURNING `+paymentColumns,
 		p.ID, chainTx, transfer.ID)
 
+	// The unique index on chain_tx is a plain one, so it reports here rather
+	// than at commit like the deferred ledger triggers do. Both paths have to
+	// go through classify or the typed error is lost.
 	confirmed, err := scanPayment(row)
 	if err != nil {
-		return nil, fmt.Errorf("confirm payment: %w", err)
+		return nil, classify(err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -236,10 +239,13 @@ func scanPayment(row pgx.Row) (*Payment, error) {
 	return &p, nil
 }
 
+// classify names the constraint violations Confirm can produce. The payment
+// ones are handled here; the rest of the schema belongs to the ledger, so
+// anything else is passed to it.
 func classify(err error) error {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.ConstraintName == "payments_chain_tx_unique" {
 		return fmt.Errorf("%w: %s", ErrChainTxUsedByOther, pgErr.Message)
 	}
-	return ledger.Classify(err)
+	return fmt.Errorf("confirm payment: %w", ledger.Classify(err))
 }

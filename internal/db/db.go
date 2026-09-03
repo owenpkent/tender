@@ -37,13 +37,38 @@ func Open(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
+// migrationLock is an arbitrary constant, the bytes of "tend". Every process
+// that migrates this database takes the same one.
+const migrationLock int64 = 0x74656e64
+
 // Migrate applies every pending migration. Migrations are forward only: a
 // mistake is corrected by a new migration, never by editing one that has
 // already run somewhere.
+//
+// It takes a session advisory lock first, because replicas start together. Two
+// processes running CREATE TYPE at the same moment do not politely take turns:
+// one of them fails on a duplicate key in a system catalogue, which is a
+// confusing way to learn that a deploy raced itself.
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	if err := configureGoose(); err != nil {
 		return err
 	}
+
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire connection for migration lock: %w", err)
+	}
+	defer conn.Release()
+
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, migrationLock); err != nil {
+		return fmt.Errorf("take migration lock: %w", err)
+	}
+	defer func() {
+		// Released on its own context, because a cancelled migration still has
+		// to let the next process in.
+		_, _ = conn.Exec(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock($1)`, migrationLock)
+	}()
+
 	sqlDB := stdlib.OpenDBFromPool(pool)
 	defer func() { _ = sqlDB.Close() }()
 

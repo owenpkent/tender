@@ -57,10 +57,15 @@ With a Postgres already installed, create the role and database once and point
 the Makefile at it:
 
 ```bash
-psql -U postgres -c "CREATE ROLE tender LOGIN PASSWORD 'tender'"
+psql -U postgres -c "CREATE ROLE tender LOGIN PASSWORD 'tender' CREATEDB"
 psql -U postgres -c "CREATE DATABASE tender OWNER tender"
 make migrate test DSN='postgres://tender:tender@localhost:5432/tender?sslmode=disable'
 ```
+
+`CREATEDB` is needed because each test binary builds itself a database rather
+than sharing one. `go test ./...` runs packages concurrently, and a shared
+database would mean one package truncating tables while another is mid
+transaction against them.
 
 Then:
 

@@ -183,7 +183,7 @@ func (l *Ledger) Post(ctx context.Context, req PostRequest) (*Transfer, bool, er
 	// error here is the database refusing a transfer the application thought
 	// was fine, which is exactly the case the backstop exists for.
 	if err := tx.Commit(ctx); err != nil {
-		return nil, false, Classify(err)
+		return nil, false, fmt.Errorf("commit transfer: %w", Classify(err))
 	}
 	return transfer, replayed, nil
 }
@@ -276,11 +276,11 @@ func (l *Ledger) PostTx(ctx context.Context, tx pgx.Tx, req PostRequest) (*Trans
 	for i := 0; i < batch.Len(); i++ {
 		if _, err := results.Exec(); err != nil {
 			_ = results.Close()
-			return nil, false, Classify(err)
+			return nil, false, fmt.Errorf("post transfer: %w", Classify(err))
 		}
 	}
 	if err := results.Close(); err != nil {
-		return nil, false, Classify(err)
+		return nil, false, fmt.Errorf("post transfer: %w", Classify(err))
 	}
 
 	posted, err := loadTransfer(ctx, tx, transferID)
@@ -428,10 +428,13 @@ func fingerprintOf(kind, reference string, deltas map[uuid.UUID]money.Amount) st
 //
 // It is exported because a caller of PostTx owns the commit, and the commit is
 // where the deferred zero-sum check reports.
+//
+// An error it does not recognise comes back untouched, so callers add their
+// own context around it either way.
 func Classify(err error) error {
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) {
-		return fmt.Errorf("post transfer: %w", err)
+		return err
 	}
 	switch pgErr.ConstraintName {
 	case "balance_non_negative":
@@ -441,6 +444,6 @@ func Classify(err error) error {
 	case "entries_account_id_fkey":
 		return fmt.Errorf("%w: %s", ErrAccountNotFound, pgErr.Message)
 	default:
-		return fmt.Errorf("post transfer: %w", err)
+		return err
 	}
 }

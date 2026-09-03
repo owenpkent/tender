@@ -171,16 +171,23 @@ func TestOneChainTxCannotPayTwoPayments(t *testing.T) {
 	}
 }
 
+// TestConcurrentConfirmsCreditOnce uses more callers than the pool has
+// connections, on purpose. Confirm holds a row lock while it works, so a
+// version of it that reaches into the pool for a second connection would park
+// every caller on a connection that never comes free: the service would stop
+// without erroring. A timeout is set so that regression fails here instead of
+// hanging a CI run.
 func TestConcurrentConfirmsCreditOnce(t *testing.T) {
 	svc, l := newService(t)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
 	p, err := svc.Create(ctx, "merchant_a", 8_000_000, usd, time.Hour)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
 
-	const callers = 16
+	const callers = 24
 	var (
 		wg    sync.WaitGroup
 		mu    sync.Mutex

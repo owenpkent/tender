@@ -92,6 +92,24 @@ Rejected: `SERIALIZABLE` isolation. It would be correct, and it moves the
 problem to retrying serialization failures under load. Explicit row locks in a
 fixed order are the cheaper answer at this shape.
 
+## Never hold a lock and then ask for a connection
+
+`Ledger.EnsureAccountTx` exists because `payments.Confirm` holds the payment
+row lock while it works. If it called the pooled `EnsureAccount` there, it
+would be holding one connection and asking for a second. Past a certain number
+of concurrent confirmations, every connection in the pool is held by a caller
+waiting for a connection that will never come free. Nothing times out and
+nothing errors; the service simply stops.
+
+`TestConcurrentConfirmsCreditOnce` runs more callers than the pool has
+connections for exactly this reason, with a context deadline so the regression
+fails the test instead of hanging the run.
+
+`ensureAccount` also reads before it writes. An account that already exists,
+which is nearly always, then costs no row lock, where an unconditional
+`ON CONFLICT DO UPDATE` would write a new row version every time and make
+every concurrent confirmation for one merchant queue behind the others.
+
 ## Composition across a transaction
 
 `Ledger.PostTx` takes a transaction the caller owns; `Ledger.Post` is the

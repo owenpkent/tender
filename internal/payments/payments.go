@@ -155,11 +155,14 @@ func (s *Service) Confirm(ctx context.Context, id uuid.UUID, chainTx string) (*P
 	// govern a transaction that is already settled on a chain, and refusing to
 	// record one would not make the funds go anywhere. The refund path, which
 	// arrives with the settlement workflow, is how a merchant gives it back.
-	world, err := s.ledger.EnsureAccount(ctx, ledger.World, chainOwnerRef, p.Currency)
+	// EnsureAccountTx, not EnsureAccount: the payment row is locked, so asking
+	// the pool for a second connection here would deadlock the service once
+	// concurrent confirmations outnumber the pool.
+	world, err := s.ledger.EnsureAccountTx(ctx, tx, ledger.World, chainOwnerRef, p.Currency)
 	if err != nil {
 		return nil, err
 	}
-	pending, err := s.ledger.EnsureAccount(ctx, ledger.MerchantPending, p.MerchantRef, p.Currency)
+	pending, err := s.ledger.EnsureAccountTx(ctx, tx, ledger.MerchantPending, p.MerchantRef, p.Currency)
 	if err != nil {
 		return nil, err
 	}

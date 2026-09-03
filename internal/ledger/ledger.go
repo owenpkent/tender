@@ -94,12 +94,44 @@ type Ledger struct {
 func New(pool *pgxpool.Pool) *Ledger { return &Ledger{pool: pool} }
 
 // EnsureAccount returns the account with this identity, creating it if it does
-// not exist yet. The unique constraint on (kind, owner_ref, currency) is what
-// makes two concurrent callers agree on one account rather than racing to make
-// two.
+// not exist yet.
 func (l *Ledger) EnsureAccount(ctx context.Context, kind Kind, ownerRef, currency string) (Account, error) {
+	return ensureAccount(ctx, l.pool, kind, ownerRef, currency)
+}
+
+// EnsureAccountTx is EnsureAccount inside a transaction the caller owns.
+//
+// A caller that is already holding a lock must use this one. Reaching into the
+// pool for a second connection while holding the first is how a service
+// deadlocks itself under load: past a certain number of concurrent callers,
+// every connection in the pool is held by somebody waiting for a connection
+// that will never come free. Nothing times out and nothing errors, the service
+// simply stops.
+func (l *Ledger) EnsureAccountTx(ctx context.Context, tx pgx.Tx, kind Kind, ownerRef, currency string) (Account, error) {
+	return ensureAccount(ctx, tx, kind, ownerRef, currency)
+}
+
+func ensureAccount(ctx context.Context, q querier, kind Kind, ownerRef, currency string) (Account, error) {
+	// Read first. An account that already exists, which is nearly always, then
+	// costs no row lock. Going straight to ON CONFLICT DO UPDATE would write a
+	// new row version every time and make every concurrent confirmation for
+	// one merchant queue behind the others for no reason.
 	var a Account
-	err := l.pool.QueryRow(ctx, `
+	err := q.QueryRow(ctx, `
+		SELECT id, kind::text, owner_ref, currency FROM accounts
+		WHERE kind = $1::account_kind AND owner_ref = $2 AND currency = $3`,
+		string(kind), ownerRef, currency,
+	).Scan(&a.ID, &a.Kind, &a.OwnerRef, &a.Currency)
+	if err == nil {
+		return a, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return Account{}, fmt.Errorf("read account: %w", err)
+	}
+
+	// The unique constraint on (kind, owner_ref, currency) is what makes two
+	// concurrent callers agree on one account rather than racing to make two.
+	err = q.QueryRow(ctx, `
 		INSERT INTO accounts (kind, owner_ref, currency)
 		VALUES ($1::account_kind, $2, $3)
 		ON CONFLICT (kind, owner_ref, currency)

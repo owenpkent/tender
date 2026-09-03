@@ -43,13 +43,28 @@ either true or the software is broken.
 
 ## Running it
 
-Needs Go 1.24 or newer and a Postgres 16.
+Needs Go 1.24 or newer and a Postgres 16 or newer.
+
+With Docker:
 
 ```bash
-make up                 # starts Postgres in Docker and prints the DSN
+make up                 # starts Postgres and prints the DSN
 make migrate            # applies the schema
 make test               # runs everything, including the Postgres-backed tests
+```
 
+With a Postgres already installed, create the role and database once and point
+the Makefile at it:
+
+```bash
+psql -U postgres -c "CREATE ROLE tender LOGIN PASSWORD 'tender'"
+psql -U postgres -c "CREATE DATABASE tender OWNER tender"
+make migrate test DSN='postgres://tender:tender@localhost:5432/tender?sslmode=disable'
+```
+
+Then:
+
+```bash
 export TENDER_DSN='postgres://tender:tender@localhost:5432/tender?sslmode=disable'
 ./bin/tenderctl payment create -merchant acme -amount 25.00
 ./bin/tenderctl payment confirm -id <the id> -tx 0xdeadbeef

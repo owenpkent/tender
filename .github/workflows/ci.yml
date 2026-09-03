@@ -1,0 +1,59 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: tender
+          POSTGRES_PASSWORD: tender
+          POSTGRES_DB: tender
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tender -d tender"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      TENDER_TEST_DSN: postgres://tender:tender@localhost:5432/tender?sslmode=disable
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          check-latest: true
+
+      - name: build
+        run: go build ./...
+
+      - name: vet
+        run: go vet ./...
+
+      # -race is not optional here. Every claim this repository makes about
+      # concurrent confirmations is a claim about behaviour under contention.
+      - name: test
+        run: go test -race -count=1 ./...
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          check-latest: true
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest

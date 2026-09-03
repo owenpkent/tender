@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tender
+      POSTGRES_PASSWORD: tender
+      POSTGRES_DB: tender
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tender -d tender"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - tender-pgdata:/var/lib/postgresql/data
+
+volumes:
+  tender-pgdata:

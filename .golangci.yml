@@ -1,0 +1,29 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - errorlint
+    - gocritic
+    - gosec
+    - misspell
+    - nilerr
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - unconvert
+  settings:
+    revive:
+      rules:
+        - name: exported
+    gosec:
+      excludes:
+        # Integer conversions are checked by hand in internal/money, which is
+        # the only place a conversion touches an amount.
+        - G115
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
